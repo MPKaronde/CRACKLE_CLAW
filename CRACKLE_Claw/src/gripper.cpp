@@ -77,6 +77,11 @@ void Gripper::move_servo(Side side, int angle)
     }
 }
 
+int Gripper::get_angle(Side side) const
+{
+    return (side == LEFT) ? left_angle : right_angle;
+}
+
 void Gripper::grip_object()
 {
     float ema             = get_loadcell_reading(RIGHT); // seed with first reading
