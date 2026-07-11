@@ -39,6 +39,13 @@ public:
     void move_servo(Side side, int angle);
 
     /*
+    Returns the last commanded angle (degrees) for the given side.
+    Both servos are driven symmetrically, so either side reflects the
+    current jaw position. Used by the ROS driver to publish joint state.
+    */
+    int get_angle(Side side) const;
+
+    /*
     Closes servos until loadcell readings spike
     If loadcell readings appear to lower (indicating slip), will increase servo force
     */
