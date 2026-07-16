@@ -10,6 +10,9 @@ Gripper gripper(13, 14, 18, 19, 21, 22);
 //              '0' -> open  (release)
 //   outgoing:  "ANGLE <deg>\n" every REPORT_INTERVAL_MS with the current
 //              (symmetric) servo angle, so ROS can publish joint state.
+//              "DONE 1\n" / "DONE 0\n" once a close/open command has fully
+//              completed, so ROS can block until the gripper is actually
+//              closed before proceeding (grip_object() is blocking).
 static const unsigned long REPORT_INTERVAL_MS = 50;
 
 void setup() {
@@ -22,16 +25,18 @@ void setup() {
 }
 
 void loop() {
-    // --- Command handling: single-char open/close, keeps /claw/command interface ---
+    // --- Command handling: single-char open/close (driven by /claw/set_gripper) ---
     while (Serial.available()) {
         int c = Serial.read();
         if (c == '1') {
             // Close: open fully first for a consistent starting point, then grip.
             gripper.release();
             gripper.grip_object();
+            Serial.println("DONE 1");
         } else if (c == '0') {
             // Open.
             gripper.release();
+            Serial.println("DONE 0");
         }
         // Any other byte (whitespace, newline, stray input) is ignored.
     }
