@@ -4,9 +4,10 @@ static const int MIN_ANGLE       = 0;
 static const int MAX_ANGLE       = 180;
 static const int TRAVEL_MS       = 700;
 static const int GRIP_STEP_MS    = 10;    // delay between steps when closing
-static const int GRIP_STEP_DEG  = 1.5;     // degrees moved per step when closing
+static const float GRIP_STEP_DEG = 1.5f;   // degrees moved per step when closing
+static const int WARMUP_SAMPLES  = 50;    // ~5s at 10Hz — discarded before zeroing
 static const int ZERO_SAMPLES    = 30;    // ~3s at HX711 default 10Hz
-static const float FORCE_THRESH  = 500.0; // tune to your load cell units
+static const float FORCE_THRESH  = 500.0f;  // tune to your load cell units
 static const float SLIP_RATIO    = 0.80;  // re-grip if reading drops below 80% of peak
 static const float EMA_ALPHA     = 0.2f;  // smoothing factor (lower = smoother, slower)
 static const int   CONFIRM_COUNT = 1;     // consecutive smoothed readings above threshold to confirm contact
@@ -37,6 +38,16 @@ void Gripper::zero_servos()
 
 void Gripper::zero_loadcells()
 {
+    // Discard first samples to let HX711 amplifier stabilize thermally
+    int warmed = 0;
+    while (warmed < WARMUP_SAMPLES) {
+        if (left_cell.is_ready() && right_cell.is_ready()) {
+            left_cell.get_units();
+            right_cell.get_units();
+            warmed++;
+        }
+    }
+
     float left_sum = 0.0f, right_sum = 0.0f;
     int count = 0;
 
@@ -84,35 +95,33 @@ int Gripper::get_angle(Side side) const
 
 void Gripper::grip_object()
 {
-    float ema             = get_loadcell_reading(RIGHT); // seed with first reading
-    float peak_right      = 0.0f;                        // tracks most negative reading seen
+    float peak_right      = 0.0f;
     bool  contacted       = false;
     int   confirms        = 0;
     int   raw_contact_angle = -1; // angle where raw reading first spiked negative
 
     // Close incrementally from current position — caller should call release() first if starting fresh
-    for (int angle = left_angle; angle <= MAX_ANGLE && !contacted; angle += GRIP_STEP_DEG) {
+    for (float angle = left_angle; angle <= MAX_ANGLE && !contacted; angle += GRIP_STEP_DEG) {
         move_servo(LEFT,  angle);
         move_servo(RIGHT, angle);
         delay(GRIP_STEP_MS);
 
-        float raw = get_loadcell_reading(RIGHT);
-        ema = EMA_ALPHA * raw + (1.0f - EMA_ALPHA) * ema;
+        if (left_cell.is_ready()) {
+            float raw = left_cell.get_units() - left_cell_offset;
 
-        // Contact = reading goes sufficiently negative; track earliest raw crossing
-        if (raw < -FORCE_THRESH && raw_contact_angle < 0)
-            raw_contact_angle = angle;
-        else if (raw >= -FORCE_THRESH)
-            raw_contact_angle = -1; // dropped back — was a spike, reset
+            if (fabsf(raw) > FORCE_THRESH && raw_contact_angle < 0)
+                raw_contact_angle = (int)angle;
+            else if (fabsf(raw) <= FORCE_THRESH)
+                raw_contact_angle = -1;
 
-        // EMA confirms contact is real, not transient noise
-        if (ema < -FORCE_THRESH) {
-            if (++confirms >= CONFIRM_COUNT) {
-                contacted = true;
-                peak_right = ema;
+            if (fabsf(raw) > FORCE_THRESH) {
+                if (++confirms >= CONFIRM_COUNT) {
+                    contacted = true;
+                    peak_right = fabsf(raw);
+                }
+            } else {
+                confirms = 0;
             }
-        } else {
-            confirms = 0;
         }
     }
 
@@ -125,17 +134,19 @@ void Gripper::grip_object()
     move_servo(RIGHT, contact_angle);
     delay(TRAVEL_MS);
 
-    // Slip monitoring: reading becoming less negative means losing grip
+    float slip_ema = peak_right; // seed from contact reading
     for (int i = 0; i < 20; i++) {
-        ema = EMA_ALPHA * get_loadcell_reading(RIGHT) + (1.0f - EMA_ALPHA) * ema;
+        if (left_cell.is_ready()) {
+            float r = left_cell.get_units() - left_cell_offset;
+            slip_ema = EMA_ALPHA * fabsf(r) + (1.0f - EMA_ALPHA) * slip_ema;
+        }
 
-        // peak_right is negative; slip if ema rises above SLIP_RATIO of peak (less force)
-        if (ema > peak_right * SLIP_RATIO) {
+        if (slip_ema < peak_right * SLIP_RATIO) {
             move_servo(LEFT,  left_angle  + 1);
             move_servo(RIGHT, right_angle + 1);
         }
 
-        if (ema < peak_right) peak_right = ema; // track most negative
+        if (slip_ema > peak_right) peak_right = slip_ema;
 
         delay(50);
     }

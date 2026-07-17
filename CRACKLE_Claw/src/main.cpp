@@ -16,7 +16,7 @@ void setup() {
     Serial.begin(115200);
     Serial.println("Initializing CRACKLE Claw...");
     gripper.zero_servos();
-    // Zero load cells with no load applied.
+    Serial.println("Warming up load cells (~8s)...");
     gripper.zero_loadcells();
     Serial.println("Ready");
 }
@@ -42,5 +42,9 @@ void loop() {
     if (now - last_report >= REPORT_INTERVAL_MS) {
         last_report = now;
         Serial.printf("ANGLE %d\n", gripper.get_angle(LEFT));
+        // Serial.printf("Right Cell: %.2f\n", gripper.get_loadcell_reading(LEFT));
     }
+    delay(150);
 }
+
+// Threshold = 500
