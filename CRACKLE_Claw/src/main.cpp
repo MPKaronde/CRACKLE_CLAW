@@ -29,9 +29,11 @@ void loop() {
             // Close: open fully first for a consistent starting point, then grip.
             gripper.release();
             gripper.grip_object();
+            Serial.println("DONE 1");
         } else if (c == '0') {
             // Open.
             gripper.release();
+            Serial.println("DONE 0");
         }
         // Any other byte (whitespace, newline, stray input) is ignored.
     }
@@ -42,7 +44,7 @@ void loop() {
     if (now - last_report >= REPORT_INTERVAL_MS) {
         last_report = now;
         Serial.printf("ANGLE %d\n", gripper.get_angle(LEFT));
-        // Serial.printf("Right Cell: %.2f\n", gripper.get_loadcell_reading(LEFT));
+        // Serial.printf("Right Cell: %.2f\n", gripper.get_loadcell_reading(RIGHT));
     }
     delay(150);
 }
