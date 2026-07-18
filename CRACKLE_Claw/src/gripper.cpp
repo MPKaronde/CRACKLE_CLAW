@@ -7,10 +7,11 @@ static const int GRIP_STEP_MS    = 10;    // delay between steps when closing
 static const float GRIP_STEP_DEG = 1.5f;   // degrees moved per step when closing
 static const int WARMUP_SAMPLES  = 50;    // ~5s at 10Hz — discarded before zeroing
 static const int ZERO_SAMPLES    = 30;    // ~3s at HX711 default 10Hz
-static const float FORCE_THRESH  = 500.0f;  // tune to your load cell units
+static const float FORCE_THRESH  = 1000.0f;  // tune to your load cell units
 static const float SLIP_RATIO    = 0.80;  // re-grip if reading drops below 80% of peak
 static const float EMA_ALPHA     = 0.2f;  // smoothing factor (lower = smoother, slower)
 static const int   CONFIRM_COUNT = 1;     // consecutive smoothed readings above threshold to confirm contact
+static const int   RETARE_SAMPLES = 5;    // samples averaged for the pre-grip baseline
 
 Gripper::Gripper(int left_servo, int right_servo,
                  int left_dt, int left_scl,
@@ -95,6 +96,19 @@ int Gripper::get_angle(Side side) const
 
 void Gripper::grip_object()
 {
+    // Fresh baseline right before closing — the boot-time tare drifts over
+    // time/temperature/mechanical preload, so re-sample now to avoid false
+    // contact trips from that drift.
+    float sum = 0.0f;
+    int   sampled = 0;
+    while (sampled < RETARE_SAMPLES) {
+        if (left_cell.is_ready()) {
+            sum += left_cell.get_units();
+            sampled++;
+        }
+    }
+    float pre_grip_baseline = sum / RETARE_SAMPLES;
+
     float peak_right      = 0.0f;
     bool  contacted       = false;
     int   confirms        = 0;
@@ -107,7 +121,7 @@ void Gripper::grip_object()
         delay(GRIP_STEP_MS);
 
         if (left_cell.is_ready()) {
-            float raw = left_cell.get_units() - left_cell_offset;
+            float raw = left_cell.get_units() - pre_grip_baseline;
 
             if (fabsf(raw) > FORCE_THRESH && raw_contact_angle < 0)
                 raw_contact_angle = (int)angle;
@@ -137,7 +151,7 @@ void Gripper::grip_object()
     float slip_ema = peak_right; // seed from contact reading
     for (int i = 0; i < 20; i++) {
         if (left_cell.is_ready()) {
-            float r = left_cell.get_units() - left_cell_offset;
+            float r = left_cell.get_units() - pre_grip_baseline;
             slip_ema = EMA_ALPHA * fabsf(r) + (1.0f - EMA_ALPHA) * slip_ema;
         }
 

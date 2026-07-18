@@ -34,6 +34,13 @@ public:
     float get_loadcell_reading(Side side);
 
     /*
+    Direct access to the underlying HX711 objects, for diagnostics that
+    need to bypass get_loadcell_reading's is_ready()/offset handling.
+    */
+    HX711& left_hx711()  { return left_cell; }
+    HX711& right_hx711() { return right_cell; }
+
+    /*
     Move servo on given side to given angle
     */
     void move_servo(Side side, int angle);
